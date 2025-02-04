@@ -14,38 +14,47 @@ pub struct Buffer<B> {
 
 macro_rules! write_uint {
     ($ty:ident $writefun:ident) => {
-        pub fn $writefun(&mut self, mut value: $ty) {
-            let Some(value_nz) = NonZero::new(value) else {
+        pub const fn $writefun(&mut self, value: $ty) {
+            const fn imp(
+                value: NonZero<$ty>,
+                remaining_capacity: usize,
+                buffer_ptr: *mut u8,
+            ) -> usize {
+                let mut len = value.ilog10() as usize + 1;
+                let mut value = value.get();
+
+                if len > remaining_capacity {
+                    write_int_failed()
+                }
+
+                let mut ptr = unsafe { buffer_ptr.add(len).cast::<[u8; 3]>() };
+                let total_len = len as usize;
+
+                while value >= 1000 {
+                    let index = (value % 1000) as usize;
+
+                    unsafe {
+                        ptr = ptr.sub(1);
+                        ptr.write(LOOKUP_1000.as_ptr().cast::<[u8; 3]>().add(index).read())
+                    }
+
+                    value /= 1000;
+                    len -= 3;
+                }
+
+                // value is guaranteed to be < 1000 here
+                unsafe { write_lt_1000_unchecked(buffer_ptr, value as u16, len) }
+
+                total_len
+            }
+
+            let Some(value) = NonZero::new(value) else {
                 self.push_str("0");
                 return;
             };
 
-            let mut len = value_nz.ilog10() as usize + 1;
-
-            if len > self.remaining_capacity() {
-                write_int_failed()
-            }
-
-            let mut ptr = unsafe { self.as_mut_ptr().add(self.len).add(len).cast::<[u8; 3]>() };
-            let new_len = self.len + len as usize;
-
-            while value >= 1000 {
-                let index = (value % 1000) as usize;
-
-                unsafe {
-                    ptr = ptr.sub(1);
-                    ptr.write(LOOKUP_1000.as_ptr().cast::<[u8; 3]>().add(index).read())
-                }
-
-                value /= 1000;
-                len -= 3;
-            }
-
             let ptr = unsafe { self.as_mut_ptr().add(self.len) };
-            // value is guaranteed to be < 1000 here
-            unsafe { write_lt_1000_unchecked(ptr, value as u16, len) }
-
-            self.len = new_len;
+            self.len += imp(value, self.remaining_capacity(), ptr)
         }
     };
 }
