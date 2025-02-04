@@ -15,6 +15,11 @@ pub struct Buffer<B> {
 macro_rules! write_uint {
     ($ty:ident $writefun:ident) => {
         pub const fn $writefun(&mut self, value: $ty) {
+            // this imp function exists so that we don't duplicate this logic
+            // on every instantiation of Buffer. Instead all instantiations
+            // of Buffer will share this same implementation with some small
+            // adjustments at the beginning and end
+            // this will likely be inlined if there aren't many copies of it
             const fn imp(
                 value: NonZero<$ty>,
                 remaining_capacity: usize,
