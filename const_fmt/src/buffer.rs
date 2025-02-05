@@ -64,6 +64,7 @@ macro_rules! write_uint {
     };
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct BufferWriteFailed;
 
 impl Buffer<[u8; 0]> {
