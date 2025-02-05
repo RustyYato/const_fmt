@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), no_std)]
+
 mod buffer;
 mod byte_buffer;
 

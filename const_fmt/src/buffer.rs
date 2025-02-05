@@ -1,6 +1,6 @@
 #![allow(clippy::identity_op)]
 
-use std::{mem::MaybeUninit, num::NonZero};
+use core::{mem::MaybeUninit, num::NonZero};
 
 use cfg_if::cfg_if;
 
@@ -125,6 +125,38 @@ impl<B: ByteBuffer> Buffer<B> {
                 .add(self.len)
                 .copy_from_nonoverlapping(s.as_ptr(), s.len());
             self.len += s.len();
+        }
+    }
+
+    pub const fn write_char(&mut self, value: char) {
+        const fn write_char_failed() -> ! {
+            panic!("Tried to write a char past the end of the buffer")
+        }
+
+        const unsafe fn imp(ptr: *mut u8, value: char) {
+            let mut buf = [0; 4];
+            value.encode_utf8(&mut buf);
+
+            unsafe {
+                match value.len_utf8() {
+                    1 => ptr.write(buf[0]),
+                    2 => ptr.cast::<[u8; 2]>().write([buf[0], buf[1]]),
+                    3 => ptr.cast::<[u8; 3]>().write([buf[0], buf[1], buf[2]]),
+                    4 => ptr.cast::<[u8; 4]>().write(buf),
+                    _ => unreachable!(),
+                }
+            }
+        }
+
+        if value.len_utf8() > self.remaining_capacity() {
+            write_char_failed()
+        }
+
+        unsafe {
+            let ptr = self.as_mut_ptr().add(self.len);
+            self.len += value.len_utf8();
+
+            imp(ptr, value)
         }
     }
 
