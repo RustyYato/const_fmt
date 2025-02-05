@@ -14,7 +14,7 @@ pub struct Buffer<B> {
 
 macro_rules! write_uint {
     ($ty:ident $writefun:ident) => {
-        pub const fn $writefun(&mut self, value: $ty) {
+        pub const fn $writefun(&mut self, value: $ty) -> Result<(), BufferWriteFailed> {
             // this imp function exists so that we don't duplicate this logic
             // on every instantiation of Buffer. Instead all instantiations
             // of Buffer will share this same implementation with some small
@@ -24,12 +24,12 @@ macro_rules! write_uint {
                 value: NonZero<$ty>,
                 remaining_capacity: usize,
                 buffer_ptr: *mut u8,
-            ) -> usize {
+            ) -> Result<usize, BufferWriteFailed> {
                 let mut len = value.ilog10() as usize + 1;
                 let mut value = value.get();
 
                 if len > remaining_capacity {
-                    write_int_failed()
+                    return Err(BufferWriteFailed);
                 }
 
                 let mut ptr = unsafe { buffer_ptr.add(len).cast::<[u8; 3]>() };
@@ -50,19 +50,21 @@ macro_rules! write_uint {
                 // value is guaranteed to be < 1000 here
                 unsafe { write_lt_1000_unchecked(buffer_ptr, value as u16, len) }
 
-                total_len
+                Ok(total_len)
             }
 
             let Some(value) = NonZero::new(value) else {
-                self.push_str("0");
-                return;
+                return self.push_str("0");
             };
 
             let ptr = unsafe { self.as_mut_ptr().add(self.len) };
-            self.len += imp(value, self.remaining_capacity(), ptr)
+            self.len += tri!(imp(value, self.remaining_capacity(), ptr));
+            Ok(())
         }
     };
 }
+
+pub struct BufferWriteFailed;
 
 impl Buffer<[u8; 0]> {
     pub const fn new<const N: usize>() -> Buffer<[u8; N]> {
@@ -111,15 +113,7 @@ impl<B: ByteBuffer> Buffer<B> {
         (&raw mut self.buffer).cast()
     }
 
-    pub const fn push_str(&mut self, s: &str) {
-        const fn push_str_failed() -> ! {
-            panic!("Tried to push past the end of the buffer")
-        }
-
-        if s.len() > self.remaining_capacity() {
-            push_str_failed()
-        }
-
+    const unsafe fn push_str_unchecked(&mut self, s: &str) {
         unsafe {
             self.as_mut_ptr()
                 .add(self.len)
@@ -128,11 +122,17 @@ impl<B: ByteBuffer> Buffer<B> {
         }
     }
 
-    pub const fn write_char(&mut self, value: char) {
-        const fn write_char_failed() -> ! {
-            panic!("Tried to write a char past the end of the buffer")
+    pub const fn push_str(&mut self, s: &str) -> Result<(), BufferWriteFailed> {
+        if s.len() > self.remaining_capacity() {
+            return Err(BufferWriteFailed);
         }
 
+        unsafe { self.push_str_unchecked(s) };
+
+        Ok(())
+    }
+
+    pub const fn write_char(&mut self, value: char) -> Result<(), BufferWriteFailed> {
         const unsafe fn imp(ptr: *mut u8, value: char) {
             let mut buf = [0; 4];
             value.encode_utf8(&mut buf);
@@ -149,18 +149,20 @@ impl<B: ByteBuffer> Buffer<B> {
         }
 
         if value.len_utf8() > self.remaining_capacity() {
-            write_char_failed()
+            return Err(BufferWriteFailed);
         }
 
         unsafe {
             let ptr = self.as_mut_ptr().add(self.len);
             self.len += value.len_utf8();
 
-            imp(ptr, value)
+            imp(ptr, value);
         }
+
+        Ok(())
     }
 
-    pub const fn write_u8(&mut self, value: u8) {
+    pub const fn write_u8(&mut self, value: u8) -> Result<(), BufferWriteFailed> {
         // u8_ilog10 is taken from Rust stdlib core::num::int_log10 module v1.86.0
         #[inline]
         pub const fn u8_ilog10(val: u8) -> u32 {
@@ -185,12 +187,14 @@ impl<B: ByteBuffer> Buffer<B> {
         let len = u8_ilog10(value) as usize + 1;
 
         if len > self.remaining_capacity() {
-            write_int_failed()
+            return Err(BufferWriteFailed);
         }
 
         let ptr = unsafe { self.as_mut_ptr().add(self.len) };
         self.len += len;
         unsafe { write_lt_1000_unchecked(ptr, value as u16, len) };
+
+        Ok(())
     }
 
     write_uint! { u16 write_u16 }
@@ -200,78 +204,78 @@ impl<B: ByteBuffer> Buffer<B> {
 
     cfg_if! {
         if #[cfg(target_pointer_width = "16")] {
-            pub const fn write_usize(&mut self, value: usize) {
-                self.write_u16(value as _);
+            pub const fn write_usize(&mut self, value: usize) -> Result<(), BufferWriteFailed> {
+                self.write_u16(value as _)
             }
         } else if #[cfg(target_pointer_width = "32")] {
-            pub const fn write_usize(&mut self, value: usize) {
-                self.write_u32(value as _);
+            pub const fn write_usize(&mut self, value: usize) -> Result<(), BufferWriteFailed> {
+                self.write_u32(value as _)
             }
         } else if #[cfg(target_pointer_width = "64")] {
-            pub const fn write_usize(&mut self, value: usize) {
-                self.write_u64(value as _);
+            pub const fn write_usize(&mut self, value: usize) -> Result<(), BufferWriteFailed> {
+                self.write_u64(value as _)
             }
         } else {
             write_uint! { usize write_usize }
         }
     }
 
-    const fn push_neg(&mut self) {
-        self.push_str("-");
+    const fn push_neg(&mut self) -> Result<(), BufferWriteFailed> {
+        self.push_str("-")
     }
 
-    pub const fn write_i8(&mut self, value: i8) {
+    pub const fn write_i8(&mut self, value: i8) -> Result<(), BufferWriteFailed> {
         if value < 0 {
-            self.push_neg()
+            tri!(self.push_neg())
         }
 
-        self.write_u8(value.unsigned_abs());
+        self.write_u8(value.unsigned_abs())
     }
 
-    pub const fn write_i16(&mut self, value: i16) {
+    pub const fn write_i16(&mut self, value: i16) -> Result<(), BufferWriteFailed> {
         if value < 0 {
-            self.push_neg()
+            tri!(self.push_neg())
         }
 
-        self.write_u16(value.unsigned_abs());
+        self.write_u16(value.unsigned_abs())
     }
 
-    pub const fn write_i32(&mut self, value: i32) {
+    pub const fn write_i32(&mut self, value: i32) -> Result<(), BufferWriteFailed> {
         if value < 0 {
-            self.push_neg()
+            tri!(self.push_neg())
         }
 
-        self.write_u32(value.unsigned_abs());
+        self.write_u32(value.unsigned_abs())
     }
 
-    pub const fn write_i64(&mut self, value: i64) {
+    pub const fn write_i64(&mut self, value: i64) -> Result<(), BufferWriteFailed> {
         if value < 0 {
-            self.push_neg()
+            tri!(self.push_neg())
         }
 
-        self.write_u64(value.unsigned_abs());
+        self.write_u64(value.unsigned_abs())
     }
 
-    pub const fn write_i128(&mut self, value: i128) {
+    pub const fn write_i128(&mut self, value: i128) -> Result<(), BufferWriteFailed> {
         if value < 0 {
-            self.push_neg()
+            tri!(self.push_neg())
         }
 
-        self.write_u128(value.unsigned_abs());
+        self.write_u128(value.unsigned_abs())
     }
 
-    pub const fn write_isize(&mut self, value: isize) {
+    pub const fn write_isize(&mut self, value: isize) -> Result<(), BufferWriteFailed> {
         if value < 0 {
-            self.push_neg()
+            tri!(self.push_neg())
         }
 
-        self.write_usize(value.unsigned_abs());
+        self.write_usize(value.unsigned_abs())
     }
 
     pub const fn append<A: ByteBuffer>(&self, other: &Buffer<A>) -> Buffer<Concat<B, A>> {
         let mut out = Buffer::create();
-        out.push_str(self.as_str());
-        out.push_str(other.as_str());
+        unsafe { out.push_str_unchecked(self.as_str()) };
+        unsafe { out.push_str_unchecked(other.as_str()) };
         out
     }
 }
@@ -323,10 +327,6 @@ static LOOKUP_1000: [u8; 3000] = {
 
     lookup
 };
-
-const fn write_int_failed() -> ! {
-    panic!("Tried to write an integer past the end of the buffer")
-}
 
 #[test]
 fn test_all_u8() {

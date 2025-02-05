@@ -1,5 +1,9 @@
 #![cfg_attr(not(test), no_std)]
 
+#[macro_use]
+#[doc(hidden)]
+pub mod macros;
+
 mod buffer;
 mod byte_buffer;
 
