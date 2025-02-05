@@ -4,7 +4,7 @@ use std::{mem::MaybeUninit, num::NonZero};
 
 use cfg_if::cfg_if;
 
-use crate::ByteBuffer;
+use crate::{ByteBuffer, Concat};
 
 #[repr(C)]
 pub struct Buffer<B> {
@@ -65,7 +65,7 @@ macro_rules! write_uint {
 }
 
 impl Buffer<[u8; 0]> {
-    pub fn new<const N: usize>() -> Buffer<[u8; N]> {
+    pub const fn new<const N: usize>() -> Buffer<[u8; N]> {
         Buffer::create()
     }
 }
@@ -168,15 +168,15 @@ impl<B: ByteBuffer> Buffer<B> {
 
     cfg_if! {
         if #[cfg(target_pointer_width = "16")] {
-            pub fn write_usize(&mut self, value: usize) {
+            pub const fn write_usize(&mut self, value: usize) {
                 self.write_u16(value as _);
             }
         } else if #[cfg(target_pointer_width = "32")] {
-            pub fn write_usize(&mut self, value: usize) {
+            pub const fn write_usize(&mut self, value: usize) {
                 self.write_u32(value as _);
             }
         } else if #[cfg(target_pointer_width = "64")] {
-            pub fn write_usize(&mut self, value: usize) {
+            pub const fn write_usize(&mut self, value: usize) {
                 self.write_u64(value as _);
             }
         } else {
@@ -184,11 +184,11 @@ impl<B: ByteBuffer> Buffer<B> {
         }
     }
 
-    fn push_neg(&mut self) {
+    const fn push_neg(&mut self) {
         self.push_str("-");
     }
 
-    pub fn write_i8(&mut self, value: i8) {
+    pub const fn write_i8(&mut self, value: i8) {
         if value < 0 {
             self.push_neg()
         }
@@ -196,7 +196,7 @@ impl<B: ByteBuffer> Buffer<B> {
         self.write_u8(value.unsigned_abs());
     }
 
-    pub fn write_i16(&mut self, value: i16) {
+    pub const fn write_i16(&mut self, value: i16) {
         if value < 0 {
             self.push_neg()
         }
@@ -204,7 +204,7 @@ impl<B: ByteBuffer> Buffer<B> {
         self.write_u16(value.unsigned_abs());
     }
 
-    pub fn write_i32(&mut self, value: i32) {
+    pub const fn write_i32(&mut self, value: i32) {
         if value < 0 {
             self.push_neg()
         }
@@ -212,7 +212,7 @@ impl<B: ByteBuffer> Buffer<B> {
         self.write_u32(value.unsigned_abs());
     }
 
-    pub fn write_i64(&mut self, value: i64) {
+    pub const fn write_i64(&mut self, value: i64) {
         if value < 0 {
             self.push_neg()
         }
@@ -220,7 +220,7 @@ impl<B: ByteBuffer> Buffer<B> {
         self.write_u64(value.unsigned_abs());
     }
 
-    pub fn write_i128(&mut self, value: i128) {
+    pub const fn write_i128(&mut self, value: i128) {
         if value < 0 {
             self.push_neg()
         }
@@ -228,12 +228,19 @@ impl<B: ByteBuffer> Buffer<B> {
         self.write_u128(value.unsigned_abs());
     }
 
-    pub fn write_isize(&mut self, value: isize) {
+    pub const fn write_isize(&mut self, value: isize) {
         if value < 0 {
             self.push_neg()
         }
 
         self.write_usize(value.unsigned_abs());
+    }
+
+    pub const fn append<A: ByteBuffer>(&self, other: &Buffer<A>) -> Buffer<Concat<B, A>> {
+        let mut out = Buffer::create();
+        out.push_str(self.as_str());
+        out.push_str(other.as_str());
+        out
     }
 }
 
