@@ -281,7 +281,7 @@ impl<B: ByteBuffer> Buffer<B> {
     }
 }
 
-const unsafe fn write_lt_1000_unchecked(mut ptr: *mut u8, value: u16, len: usize) {
+const unsafe fn write_lt_1000_unchecked(ptr: *mut u8, value: u16, len: usize) {
     unsafe {
         // point to the current end of the buffer
         let lookup = LOOKUP_1000
@@ -290,24 +290,14 @@ const unsafe fn write_lt_1000_unchecked(mut ptr: *mut u8, value: u16, len: usize
             .add(value as usize)
             .read();
 
-        // subtract 3 from the length of this integer
-        // this tells how many digits to skip from the lookup table.
-        // for example, if `value` is 93, then `len` would be 2
-        // so after the offset `len` would be -1, so one digit to skip
-        let mut len = len as isize - 3;
         // always write all values since it's faster than checking
         // if the byte should be written
         ptr.write(lookup[0]);
         // increment pointer if there are no more digits to skip
-        ptr = ptr.add((len >= 0) as usize);
-        // increment length, to signal that we have handled one digit
-        // if it was a skipped digit, len is still tracking the number of skipped digits
-        // if it was not a skipped digit, then len is some arbitrary nonnegative integer
-        //      this means that we should keep all remaining digits
-        len += 1;
+        let ptr = ptr.add((len >= 3) as usize);
         ptr.write(lookup[1]);
         // increment pointer if there are no more digits to skip
-        ptr = ptr.add((len >= 0) as usize);
+        let ptr = ptr.add((len >= 2) as usize);
         ptr.write(lookup[2]);
     }
 }
@@ -335,8 +325,8 @@ fn test_all_u8() {
 
     let mut s = String::new();
     for i in 0..=u8::MAX {
-        let mut buffer = Buffer::<[u8; 20]>::create();
-        buffer.write_u8(i);
+        let mut buffer = Buffer::<[u8; 3]>::create();
+        let _ = buffer.write_u8(i);
         s.clear();
         let _ = write!(s, "{i}");
         assert_eq!(buffer.as_str(), s);
@@ -349,8 +339,8 @@ fn test_all_u16() {
 
     let mut s = String::new();
     for i in 0..=u16::MAX {
-        let mut buffer = Buffer::<[u8; 20]>::create();
-        buffer.write_u16(i);
+        let mut buffer = Buffer::<[u8; 5]>::create();
+        let _ = buffer.write_u16(i);
         s.clear();
         let _ = write!(s, "{i}");
         assert_eq!(buffer.as_str(), s);
@@ -364,10 +354,52 @@ fn test_all_u32() {
 
     let mut s = String::new();
     for i in 0..=u32::MAX {
-        let mut buffer = Buffer::<[u8; 20]>::create();
-        buffer.write_u32(i);
+        let mut buffer = Buffer::<[u8; 9]>::create();
+        let _ = buffer.write_u32(i);
         s.clear();
         let _ = write!(s, "{i}");
         assert_eq!(buffer.as_str(), s);
     }
+}
+
+#[cfg(kani)]
+#[kani::proof]
+#[kani::unwind(4)]
+fn prove_u8() {
+    let x: u8 = kani::any();
+
+    let mut buffer = Buffer::<[u8; 20]>::create();
+    buffer.write_u8(x);
+
+    assert_eq!(buffer.as_str().parse::<u8>(), Ok(x));
+}
+
+#[cfg(kani)]
+#[kani::proof]
+#[kani::unwind(6)]
+fn prove_u16() {
+    let x: u16 = kani::any();
+
+    let mut buffer = Buffer::<[u8; 20]>::create();
+    buffer.write_u16(x);
+
+    assert_eq!(buffer.as_str().parse::<u16>(), Ok(x));
+}
+
+#[cfg(kani)]
+#[kani::proof]
+#[kani::unwind(10)]
+fn prove_u32() {
+    let x: u32 = kani::any();
+
+    let mut buffer = Buffer::<[u8; 20]>::create();
+    buffer.write_u32(x);
+
+    let mut buf = [0u8; 20];
+
+    write!(&mut buf[..], "{x}");
+
+    assert_eq!(buffer.as_str().as_bytes());
+
+    assert_eq!(buffer.as_str().parse::<u32>(), Ok(x));
 }
