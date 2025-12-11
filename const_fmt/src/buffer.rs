@@ -81,6 +81,10 @@ impl<B: ByteBuffer> Buffer<B> {
         }
     }
 
+    pub fn clear(&mut self) {
+        self.len = 0;
+    }
+
     pub const fn as_str(&self) -> &str {
         let ptr = self.as_ptr();
         let len = self.len();
@@ -312,10 +316,10 @@ static LOOKUP_10000: [u8; 40000] = {
 
     while i < 10000 {
         let v = i;
-        lookup[3 * i + 3] = (v % 10) as u8 + b'0';
-        lookup[3 * i + 2] = ((v / 10) % 10) as u8 + b'0';
-        lookup[3 * i + 1] = ((v / 100) % 10) as u8 + b'0';
-        lookup[3 * i + 0] = (v / 1000) as u8 + b'0';
+        lookup[4 * i + 3] = (v % 10) as u8 + b'0';
+        lookup[4 * i + 2] = ((v / 10) % 10) as u8 + b'0';
+        lookup[4 * i + 1] = ((v / 100) % 10) as u8 + b'0';
+        lookup[4 * i + 0] = (v / 1000) as u8 + b'0';
 
         i += 1;
     }
