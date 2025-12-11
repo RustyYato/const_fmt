@@ -32,23 +32,23 @@ macro_rules! write_uint {
                     return Err(BufferWriteFailed);
                 }
 
-                let mut ptr = unsafe { buffer_ptr.add(len).cast::<[u8; 3]>() };
+                let mut ptr = unsafe { buffer_ptr.add(len).cast::<[u8; 4]>() };
                 let total_len = len as usize;
 
-                while value >= 1000 {
-                    let index = (value % 1000) as usize;
+                while value >= 10000 {
+                    let index = (value % 10000) as usize;
 
                     unsafe {
                         ptr = ptr.sub(1);
-                        ptr.write(LOOKUP_1000.as_ptr().cast::<[u8; 3]>().add(index).read())
+                        ptr.write(LOOKUP_10000.as_ptr().cast::<[u8; 4]>().add(index).read())
                     }
 
-                    value /= 1000;
-                    len -= 3;
+                    value /= 10000;
+                    len -= 4;
                 }
 
-                // value is guaranteed to be < 1000 here
-                unsafe { write_lt_1000_unchecked(buffer_ptr, value as u16, len) }
+                // value is guaranteed to be < 10000 here
+                unsafe { write_lt_10000_unchecked(buffer_ptr, value as u16, len) }
 
                 Ok(total_len)
             }
@@ -193,7 +193,7 @@ impl<B: ByteBuffer> Buffer<B> {
 
         let ptr = unsafe { self.as_mut_ptr().add(self.len) };
         self.len += len;
-        unsafe { write_lt_1000_unchecked(ptr, value as u16, len) };
+        unsafe { write_lt_10000_unchecked(ptr, value as u16, len) };
 
         Ok(())
     }
@@ -281,12 +281,12 @@ impl<B: ByteBuffer> Buffer<B> {
     }
 }
 
-const unsafe fn write_lt_1000_unchecked(ptr: *mut u8, value: u16, len: usize) {
+const unsafe fn write_lt_10000_unchecked(ptr: *mut u8, value: u16, len: usize) {
     unsafe {
         // point to the current end of the buffer
-        let lookup = LOOKUP_1000
+        let lookup = LOOKUP_10000
             .as_ptr()
-            .cast::<[u8; 3]>()
+            .cast::<[u8; 4]>()
             .add(value as usize)
             .read();
 
@@ -294,24 +294,28 @@ const unsafe fn write_lt_1000_unchecked(ptr: *mut u8, value: u16, len: usize) {
         // if the byte should be written
         ptr.write(lookup[0]);
         // increment pointer if there are no more digits to skip
-        let ptr = ptr.add((len >= 3) as usize);
+        let ptr = ptr.add((len >= 4) as usize);
         ptr.write(lookup[1]);
         // increment pointer if there are no more digits to skip
-        let ptr = ptr.add((len >= 2) as usize);
+        let ptr = ptr.add((len >= 3) as usize);
         ptr.write(lookup[2]);
+        // increment pointer if there are no more digits to skip
+        let ptr = ptr.add((len >= 2) as usize);
+        ptr.write(lookup[3]);
     }
 }
 
-static LOOKUP_1000: [u8; 3000] = {
-    let mut lookup = [0; 3000];
+static LOOKUP_10000: [u8; 40000] = {
+    let mut lookup = [0; 40000];
 
     let mut i = 0;
 
-    while i < 1000 {
+    while i < 10000 {
         let v = i;
-        lookup[3 * i + 2] = (v % 10) as u8 + b'0';
-        lookup[3 * i + 1] = ((v / 10) % 10) as u8 + b'0';
-        lookup[3 * i + 0] = (v / 100) as u8 + b'0';
+        lookup[3 * i + 3] = (v % 10) as u8 + b'0';
+        lookup[3 * i + 2] = ((v / 10) % 10) as u8 + b'0';
+        lookup[3 * i + 1] = ((v / 100) % 10) as u8 + b'0';
+        lookup[3 * i + 0] = (v / 1000) as u8 + b'0';
 
         i += 1;
     }
